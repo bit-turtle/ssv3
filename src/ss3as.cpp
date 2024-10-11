@@ -3,7 +3,11 @@
 #include <string>
 #include <sstream>
 
+#include "argh.h"
+
 #include <cstdint>
+
+bool warn = true;	// Warn about trailing characters
 
 void exit(int code, std::string message, std::string extra = "") {
 	std::cout << message << extra << std::endl;
@@ -79,25 +83,46 @@ uint8_t parse(std::string line) {
 		instruction |= (uint8_t)value;
 	}
 
+	if (warn && operands.rdbuf()->in_avail() != 0) exit(1, "Trailing Characters! (Disable warning with --nowarn): ", line);
+
 	return instruction;
 }
 
 int main(int argc, char* argv[]) {
-	if (argc < 2) exit(1, "Usage: ss3as srcfile [destfile]");
-	std::string srcfilename(argv[1]);
+	argh::parser cmdl({"-o", "--output"});
+	cmdl.parse(argc, argv);
+	if (!cmdl(1)) exit(1, "Usage: ss3as srcfile [destfile]");
+	std::string srcfilename;
+	cmdl(1) >> srcfilename;
 	std::ifstream srcfile(srcfilename);
-	std::string destfilename("ssv3.bin");
-	if (argc >= 3) destfilename = argv[2];
+	std::string destfilename;
+	cmdl({"-o","--output"}, "ssv3.bin") >> destfilename;
 	std::ofstream destfile(destfilename, std::ios::binary | std::ios::out);
 
+	if (cmdl[{"--nowarn"}]) warn = false;
+
 	std::string srcline;
+	int addr = 0;
 	while(getline(srcfile, srcline)) {
+		{
+			std::stringstream comments(srcline);
+			getline(comments, srcline);
+		} // Delete characters past '#' comment
+
+		if (srcline == "") continue;	// Skip empty lines
 		if (srcline[0] == '%') {	// '%' indicates a 8-bit decimal value to insert
 			std::string valuestr = srcline.substr(1,srcline.length()-1);
 			uint8_t value = (uint8_t)std::stoi(valuestr,nullptr,10);
 			destfile << value;
 		}
+		else if (srcline[0] == '@') {
+			std::string addrstr = srcline.substr(1,srcline.length()-1);
+			int futureaddr = std::stoi(addrstr,nullptr,10);
+			for (; addr < futureaddr; addr++) destfile << 0x00;
+			continue;
+		}
 		else destfile << (char)parse(srcline);
+		addr++;
 	}
 
 	srcfile.close();
