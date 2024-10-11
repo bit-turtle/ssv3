@@ -2,6 +2,8 @@
 #include <string>
 #include <fstream>
 
+#include "argh.h"
+
 #include <cstdint>
 uint8_t ram[256] = { 0x00 };
 uint8_t r = 0x00;	// R register
@@ -16,12 +18,34 @@ bool e = false;		// E flag
 bool halted = false;
 long cycles = 0;
 
-// TODO Input
-uint8_t input(uint8_t port) {
-	return 0;
+bool debug = false;
+bool step = false;
+
+// Print State
+void printstate() {
+	std::cout << "Info: VM State" << std::endl;
+	std::cout << "- Registers:" << std::endl;
+	std::cout << "  - r = " << (int)r << std::endl;
+	std::cout << "  - a = " << (int)a << std::endl;
+	std::cout << "  - i = " << (int)i << std::endl;
+	std::cout << "  - x = " << (int)x << std::endl;
+	std::cout << "  - y = " << (int)y << std::endl;
+	std::cout << "- Flags:" << std::endl;
+	std::cout << "  - z = " << ((z) ? "true" : "false") << std::endl;
+	std::cout << "  - o = " << ((o) ? "true" : "false") << std::endl;
+	std::cout << "  - e = " << ((e) ? "true" : "false") << std::endl;
 }
-// TODO Output
+
+// Input
+uint8_t input(uint8_t port) {
+	int input;
+	std::cout << "Input on Port " << (int)port << ": ";
+	std::cin >> input;
+	return (uint8_t)input;
+}
+// Output
 void output(uint8_t port, uint8_t value) {
+	std::cout << "Output on Port " << (int)port << ": " << (int)value << std::endl;
 }
 
 void update() {
@@ -30,11 +54,15 @@ void update() {
 	bool endinc = true;	// Increment I register after instruction
 
 	uint8_t inst = ram[i];		// Get Instruction
-	uint8_t insth = inst >> 4;	// Get Top 4 bits
-	uint8_t cond = inst & 0b1100;	// Condition is top 2 bits of top 4 bits
+	uint8_t insth = (inst >> 4) & 0x0f;	// Get Top 4 bits
+	uint8_t cond = (inst >> 6) & 0b11;	// Condition is top 2 bits of top 4 bits
 	insth &= 0b11;			// Opcode is bottom 2 bits of top 4 bits
-	uint8_t instl = inst << 4 >> 4;	// Get bottom 4 bits
-	
+	uint8_t instl = inst & 0x0f;	// Get bottom 4 bits
+
+//Debug
+	if (debug) std::cout << "Debug: Running Instruction: " << (int)cond << ":" << (int)insth << ":" << (int)instl << std::endl;
+//
+
 	if (	// Run Instruction if Condition is True
 			(cond == 0b00)		||	// 0b00: Always Run
 			(cond == 0b01 && z)	||	// 0b01: Run If Zero
@@ -42,7 +70,7 @@ void update() {
 			(cond == 0b11 && e)		// 0b11: Run If Error
 	)
 	switch (insth) {
-		case 0b00:	// 0b00: Move Data and Modify Flag Instructions
+		case 0b00: {	// 0b00: Move Data and Modify Flag Instructions
 			switch (instl) {
 				case 0b0000:	// ra instruction
 					r = a;
@@ -98,7 +126,8 @@ void update() {
 					break;
 			}
 			break;
-		case 0b01:	// 0b01: ALU Instructions
+		}
+		case 0b01: {	// 0b01: ALU Instructions
 			// Reset ALU Flags
 			z = false;
 			o = false;
@@ -185,14 +214,21 @@ void update() {
 					break;
 			}
 			break;
-		case 0b10:	// 0b10: vl instruction
-			r &= 0xf0;
-			r |= instl;
+		}
+		case 0b10: {	// 0b10: vl instruction
+			uint8_t vlr = 0x00;
+			vlr |= r & 0xf0;
+			vlr |= instl & 0x0f;
+			r = vlr;
 			break;
-		case 0b11:	// 0b11: vh instruction
-			r &= 0x0f;
-			r |= instl << 4;
+		}
+		case 0b11: {	// 0b11: vh instruction
+			uint8_t vhr = 0x00;
+			vhr |= r & 0x0f;
+			vhr |= (instl << 4) & 0xf0;
+			r = vhr;
 			break;
+		}
 		default:
 			break;
 	}
@@ -208,11 +244,16 @@ void exit(int code, std::string message) {
 	std::exit(code);
 }
 
-int main(int argc, char* argv[]) {
-	if (argc < 2) exit(0, "Usage: ss3vm imgfile"); 
-	std::string imgfilename = argv[1];
+int main(int, char* argv[]) {
+	argh::parser cmdl(argv);
+	if (!cmdl(1)) exit(0, "Usage: ss3vm imgfile");
+	std::string imgfilename;
+	cmdl(1) >> imgfilename;
 	std::ifstream imgfile(imgfilename, std::ios::binary | std::ios::in);
 	if (!imgfile.is_open()) exit(1, "Error: Failed to open imgfile");
+
+	if (cmdl[{"-d","--debug"}]) debug = true;
+	if (cmdl[{"-s","--step"}]) step = true;
 
 	// Read ram image into ram
 	std::cout << "Info: Loading ram image...";
@@ -226,10 +267,16 @@ int main(int argc, char* argv[]) {
 
 	// Run VM
 	std::cout << "Info: Starting VM" << std::endl;
-	std::cout << "----" << std::endl;
-	do update();
-	while (!halted);
-	std::cout << "----" << std::endl;
+	if (debug) printstate();
+	while (!halted) {
+		update();
+		if (debug) printstate();
+		if (step) {
+			std::cout << "[Press Enter To Continue]";
+			std::cin.ignore();
+		}
+	}
+	std::cout << std::endl;
 
 	// VM reached end of ram
 	std::cout << "Info: VM reached end of ram and halted" <<std::endl;
