@@ -11,6 +11,12 @@ Instuction Set in `INSTRUCTIONS.md`
 ## Writing A Program
 Check the `examples/` directory
 ## Assembling A Program
-`ss3as yourprogram.as yourprogram.bin`
+`ss3as yourprogram.as [-o yourprogram.bin]`
+* Default output filename is `ssv3.bin`
 ## Running A Program in the VM
-`ss3vm yourprogram.bin`
+`ss3vm yourprogram.bin [--debug] [--step]`
+* Flags:
+    1. `--debug`
+        - Shows the current instruction being run and the state of the CPU
+    2. `--step`
+        - Only advances to the next instruction if you press [Enter]
